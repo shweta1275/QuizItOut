@@ -1,0 +1,12 @@
+fastapi
+uvicorn
+python-multipart
+pydantic>=2
+requests
+pypdf
+python-docx
+python-pptx
+sentence-transformers
+faiss-cpu
+rank-bm25
+numpy

@@ -1,0 +1,61 @@
+{
+  "sha256": "2c34e927d2e60b44a08c7d119e670e90cb0f62c62a606463f2743be362f966ad",
+  "filename": "demo_doc.pdf",
+  "questions": [
+    {
+      "question": "What is a key principle of DevOps?",
+      "options": [
+        "Using separate silos for developers and operations teams",
+        "Making only operations teams responsible for the full lifecycle of software",
+        "Focusing on stability over shipping new features quickly",
+        "Automation, shared ownership, and fast feedback loops"
+      ],
+      "answer_index": 3,
+      "source_snippet": "It relies on automation, shared ownership and fast feedback loops."
+    },
+    {
+      "question": "What identifies each commit in Git?",
+      "options": [
+        "Commit message",
+        "SHA-1 hash",
+        "Repository history",
+        "Point in time"
+      ],
+      "answer_index": 1,
+      "source_snippet": "every commit is identified by a SHA-1 hash."
+    },
+    {
+      "question": "What programming language was Jenkins written in?",
+      "options": [
+        "Watson",
+        "Java",
+        "C++",
+        "Lisp"
+      ],
+      "answer_index": 1,
+      "source_snippet": "Jenkins is an open-source automation server written in Java."
+    },
+    {
+      "question": "What is a key characteristic of containers compared to virtual machines?",
+      "options": [
+        "A container uses its own operating system",
+        "Containers run slower than virtual machines",
+        "Containers share the host operating system kernel",
+        "Docker is not compatible with virtual machines"
+      ],
+      "answer_index": 2,
+      "source_snippet": "Containers share the host operating syste m kernel, which makes them much lighter than virtual machines."
+    },
+    {
+      "question": "What happens to broken code in a deployment pipeline?",
+      "options": [
+        "It is released to production",
+        "A human still decides when to release it",
+        "The pipeline stops and no further stages are executed",
+        "It is discarded"
+      ],
+      "answer_index": 2,
+      "source_snippet": "A failure in any stage stops the pipeline, so broken code never reaches users."
+    }
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "doc": "tests/golden/notes.txt",
+  "cases": [
+    {"query": "which scheduling algorithm uses a time quantum", "must_contain": "Round Robin"},
+    {"query": "what are the necessary conditions for deadlock", "must_contain": "Coffman"},
+    {"query": "algorithm that avoids deadlock using a safe state", "must_contain": "Banker"},
+    {"query": "what happens when a page is not in RAM", "must_contain": "page fault"},
+    {"query": "at which layer do routers operate", "must_contain": "Routers work at the network layer"},
+    {"query": "steps of the TCP handshake", "must_contain": "SYN-ACK"},
+    {"query": "record type that maps a name to an IPv4 address", "must_contain": "A record"},
+    {"query": "default port for HTTPS", "must_contain": "443"}
+  ]
+}

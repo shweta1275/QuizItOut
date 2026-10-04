@@ -1,0 +1,17 @@
+Operating Systems and Networking: Revision Notes
+
+Processes and threads. A process is a program in execution with its own address space. A thread is the smallest unit of execution inside a process, and all threads of a process share the same memory. Creating a thread is cheaper than creating a process.
+
+CPU scheduling. Round Robin scheduling gives every process a fixed time slice called a quantum, then moves it to the back of the ready queue. Shortest Job First picks the process with the smallest burst time and gives the lowest average waiting time, but it can starve long jobs.
+
+Deadlock. A deadlock happens when processes wait forever for resources held by each other. The four Coffman conditions are mutual exclusion, hold and wait, no preemption and circular wait. The Banker's algorithm avoids deadlock by checking whether a resource request keeps the system in a safe state.
+
+Memory management. Paging divides memory into fixed-size frames and divides programs into pages of the same size. A page fault occurs when a program accesses a page that is not currently in RAM. Thrashing is when the system spends more time swapping pages than running programs.
+
+The OSI model. The OSI model has seven layers: physical, data link, network, transport, session, presentation and application. Routers work at the network layer and switches work at the data link layer.
+
+TCP and UDP. TCP is connection-oriented and guarantees ordered, reliable delivery using a three-way handshake of SYN, SYN-ACK and ACK. UDP is connectionless and faster, which makes it suitable for video streaming, online games and DNS lookups.
+
+DNS. The Domain Name System translates human-readable domain names into IP addresses. An A record maps a name to an IPv4 address, while a CNAME record maps one name to another name.
+
+HTTP. HTTP is a stateless request-response protocol. Status code 200 means OK, 404 means the resource was not found, and 503 means the service is unavailable. HTTPS adds TLS encryption on top of HTTP and uses port 443 by default.

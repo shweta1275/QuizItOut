@@ -1,0 +1,21 @@
+services:
+  app:
+    image: ${IMAGE:-shwetak1275/quizitout}:${IMAGE_TAG:-latest}
+    ports:
+      - "8000:8000"
+    environment:
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3}
+      PREFER_CACHE: ${PREFER_CACHE:-false}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+
+  ollama:                      # optional: docker compose --profile with-ollama up
+    image: ollama/ollama:latest
+    profiles: ["with-ollama"]
+    volumes:
+      - ollama_data:/root/.ollama
+
+volumes:
+  ollama_data:
