@@ -1,7 +1,7 @@
 """Where the raw evidence comes from: the live stack, or a recorded incident (replay)."""
 
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import httpx
 
@@ -58,7 +58,7 @@ class ReplaySource:
             t = REPLAY_REF + e["at"]
             errors.append(
                 {
-                    "ts": datetime.fromtimestamp(t, timezone.utc).isoformat(timespec="seconds"),
+                    "ts": datetime.fromtimestamp(t, UTC).isoformat(timespec="seconds"),
                     "ts_epoch": t,
                     **{k: e[k] for k in ("exc", "file", "line", "path", "msg")},
                 }

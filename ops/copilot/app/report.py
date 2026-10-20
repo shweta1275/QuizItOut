@@ -7,7 +7,7 @@ deploy the copilot actually knows. The ACTION is never read from a report.
 
 import re
 from collections import Counter
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from statistics import mean
 
 SHA_TOKEN = re.compile(r"\b(?=[0-9a-f]*\d)[0-9a-f]{7,40}\b")
@@ -17,7 +17,7 @@ EVIDENCE_REF = re.compile(r"\bE\d+\b")
 def fmt_ts(epoch: float | None) -> str:
     if epoch is None:
         return "unknown"
-    return datetime.fromtimestamp(epoch, timezone.utc).strftime("%H:%M:%S UTC")
+    return datetime.fromtimestamp(epoch, UTC).strftime("%H:%M:%S UTC")
 
 
 def build_evidence(analysis: dict, series, rate_series, errors: list[dict], deploys: list[dict]) -> dict:

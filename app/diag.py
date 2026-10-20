@@ -8,7 +8,7 @@ import json
 import sys
 import traceback
 from collections import deque
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from app.config import settings
@@ -28,7 +28,7 @@ def _innermost_app_frame(exc: BaseException):
 def record_error(exc: BaseException, path: str) -> dict:
     frame = _innermost_app_frame(exc)
     rec = {
-        "ts": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "ts": datetime.now(UTC).isoformat(timespec="seconds"),
         "level": "ERROR",
         "version": settings.app_version,
         "msg": str(exc)[:MAX_MSG],
