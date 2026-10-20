@@ -86,7 +86,193 @@ The delivery and incident loop around it:
 
 On failure after deploy, the pipeline redeploys the last good SHA automatically (`$JENKINS_HOME/quizitout_last_good`) and tells the copilot. A separate job, `quizitout-rollback` (`Jenkinsfile.rollback`), performs rollbacks approved by a human.
 
-## 5. Start the project
+## 5. Quick start: step by step (copy and paste)
+
+Run every command from a normal terminal (`Cmd + Space`, type Terminal). Do the steps in order. Each step is one command and one line of explanation.
+
+### A. Every time you sit down
+
+**1. Go to the project folder.**
+```bash
+cd "/Users/shwetakarandikar/Documents/cllz stuff/4th year/DevOps/QuizItOut"
+```
+
+**2. Open Docker Desktop and wait until the bottom-left says "Engine running".**
+```bash
+open -a Docker
+```
+
+**3. Check that Docker really answers (must print a table, even an empty one, and no error).**
+```bash
+docker ps
+```
+
+**4. Start Ollama if it is not running (skip if the llama icon is in your menu bar).**
+```bash
+open -a Ollama
+```
+
+**5. Check the model is there and warm it up so the first quiz is not slow.**
+```bash
+ollama list
+ollama run llama3 "hi"
+```
+
+**6. Check Jenkins is up (prints 200). If it prints nothing, run the second line.**
+```bash
+curl -s -o /dev/null -w '%{http_code}\n' http://localhost:8080/login
+brew services start jenkins-lts
+```
+
+### B. Start the app and the monitoring stack
+
+**7. Start the QuizItOut app on port 8000 (pulls the image Jenkins last pushed).**
+```bash
+docker compose -p quizitout up -d
+```
+
+**8. Check the app is healthy (prints status and the git SHA it runs).**
+```bash
+curl -s localhost:8000/health
+```
+
+**9. First time only: create the ops settings file.**
+```bash
+cp ops/.env.example ops/.env
+```
+
+**10. First time only: put your Jenkins username and API token into `ops/.env` (create the token under Jenkins, your name, Security, API Token; see `docs/SETUP_INCIDENTPILOT.md` section 4).**
+```bash
+open -e ops/.env
+```
+
+**11. Start Prometheus, Alertmanager, the load generator and the copilot (project name `incidentpilot`).**
+```bash
+docker compose -f ops/docker-compose.yml --env-file ops/.env up -d --build
+```
+
+**12. Check all four ops containers are Up.**
+```bash
+docker compose -f ops/docker-compose.yml ps
+```
+
+**13. Check each part answers.**
+```bash
+curl -s localhost:8001/health
+curl -s localhost:9093/-/healthy
+curl -s localhost:9090/api/v1/targets | python3 -c "import json,sys; print([(t['scrapeUrl'], t['health']) for t in json.load(sys.stdin)['data']['activeTargets']])"
+```
+The Prometheus target must say `up`. If it says `down`, the running app is an old image without `/metrics`: finish step 15 (a green Jenkins build), then check again.
+
+**14. Open everything in the browser.**
+```bash
+open http://localhost:8000 http://localhost:8080 http://localhost:9090 http://localhost:9093 http://localhost:8001
+```
+
+### C. Get the new code deployed through Jenkins
+
+**15. Push your branch (Jenkins builds from GitHub, not from your disk).**
+```bash
+git push -u origin incidentpilot
+```
+Then in Jenkins: job **quizitout** → **Build Now**. The Branch Specifier must be `*/incidentpilot` until you merge.
+
+**16. After a green build, confirm the new version is live and the copilot saw the deploy.**
+```bash
+curl -s localhost:8000/health
+curl -s localhost:8001/deploys
+```
+
+### D. Demo commands (in this order)
+
+**17. Make a harmless baseline release known to the copilot: Jenkins, Build Now (do this once so the copilot knows the current good SHA).**
+
+**18. Ship the bad release (commits locally, then you push).**
+```bash
+./scripts/inject_bug.sh
+git push
+```
+
+**19. In Jenkins click Build Now. All stages go green. About 1 to 2 minutes later the alert fires and an incident appears at http://localhost:8001.**
+
+**20. After approving the rollback, fix forward so the next push does not redeploy the bug.**
+```bash
+./scripts/revert_bug.sh
+git push
+```
+
+**21. Wrong-proposal case, live: switch on a 30% failure that no release caused, then switch it off.**
+```bash
+./scripts/chaos_on.sh
+./scripts/chaos_off.sh
+```
+
+**22. Safety net: replay recorded incidents through the real analysis code (no Jenkins needed).**
+```bash
+./scripts/fake_alert.sh
+./scripts/fake_alert.sh chaos_after_docs_deploy
+```
+
+**23. A docs-only release (touches no code).**
+```bash
+./scripts/harmless_change.sh
+git push
+```
+
+### E. Checks you can run any time
+
+**24. Prove the bad release passes CI but fails at runtime (applies the patch, checks, reverts).**
+```bash
+./scripts/verify_patch.sh
+```
+
+**25. App tests the way Jenkins runs them.**
+```bash
+docker build --target test -t quizitout:test . && docker run --rm quizitout:test
+```
+
+**26. Copilot tests the way Jenkins runs them.**
+```bash
+docker build --target test -t incidentpilot-copilot:test ops/copilot && docker run --rm incidentpilot-copilot:test
+```
+
+**27. Watch the load generator (a summary line every 10 s).**
+```bash
+docker logs -f incidentpilot-loadgen-1
+```
+
+### F. Reset and stop
+
+**28. Reset between rehearsals (wipes copilot incidents and deploys), then run one Jenkins build so it learns the current good SHA.**
+```bash
+docker compose -f ops/docker-compose.yml down -v
+docker compose -f ops/docker-compose.yml --env-file ops/.env up -d
+```
+
+**29. Stop the ops stack (keeps its data).**
+```bash
+docker compose -f ops/docker-compose.yml down
+```
+
+**30. Stop the app.**
+```bash
+docker compose -p quizitout down
+```
+
+### If something is wrong
+
+| Symptom | Fix |
+|---|---|
+| `Cannot connect to the Docker daemon` | Docker Desktop is not fully started. Wait for "Engine running", or quit and reopen it, then repeat step 3. |
+| Jenkins says "No such branch" | You have not pushed: run step 15. |
+| Jenkins did not start a build after a push | Poll SCM runs about every 2 minutes. Click **Build Now**. |
+| Prometheus target `down` | Run a green Jenkins build (step 15); the old app image has no `/metrics`. |
+| Incident says "no suspect" | The copilot has no recorded deploys. Run a Jenkins build with the ops stack up (step 17). |
+| Approve does nothing | `JENKINS_USER` or `JENKINS_TOKEN` in `ops/.env` is empty. Fix it, then `docker compose -f ops/docker-compose.yml --env-file ops/.env up -d copilot`. |
+
+More detail: `docs/SETUP_INCIDENTPILOT.md` (setup and troubleshooting) and `docs/DEMO_SCRIPT.md` (what to say).
+
+## 6. Start the project
 
 ### What you need installed (one time)
 - **Docker Desktop**: running (whale icon in the menu bar)
@@ -184,7 +370,7 @@ it can't run Ollama, its Python functions are limited to ~250 MB (our image is s
 with torch and the models) and requests time out long before a one-minute quiz generation
 finishes. It would also bypass the Jenkins → Docker deploy that this project is about.
 
-## 6. Configuration (environment variables)
+## 7. Configuration (environment variables)
 
 ### The app
 
@@ -205,7 +391,7 @@ finishes. It would also bypass the Jenkins → Docker deploy that this project i
 
 `PROMETHEUS_URL`, `APP_URL`, `OLLAMA_BASE_URL`, `OLLAMA_MODEL`, `LLM_TIMEOUT` (60), `JENKINS_URL`, `JENKINS_USER`, `JENKINS_TOKEN`, `JENKINS_ROLLBACK_JOB`, `DB_PATH`, `ENABLE_REPLAY`. `ops/.env` is gitignored.
 
-## 7. Monitoring, explained
+## 8. Monitoring, explained
 
 **How the app is monitored.** The app counts every request in `http_requests_total{method,path,status,version}`. `path` is the route template (`/api/quiz/sample`), not the raw URL, so the number of label combinations stays small; unmatched URLs are labelled `other`. `version` is the git SHA the image was built from, so a graph can show which release produced the errors. Requests to `/metrics` are not counted.
 
@@ -224,7 +410,7 @@ Read it as: "over the last minute, more than 5% of requests returned 5xx, and it
 
 **Load generator.** A small container sends 5 requests per second to `GET /api/quiz/sample`, and 40% of those omit the optional `count` parameter. The real upload endpoint takes about a minute per request because it calls the LLM, so it cannot be load-tested this way. The sample endpoint is a cheap, LLM-free stand-in.
 
-## 8. How the copilot decides
+## 9. How the copilot decides
 
 1. **Evidence bundle.** E1 error ratio, E2 request rate before and after onset (Prometheus). E3 recent error records (exception type, file, line) from the app. E4 the last five deploys (SHA, time, commit message, files changed).
 2. **Onset.** First time the error ratio stays clearly above its quiet baseline (+5 percentage points for three samples in a row). If there is no quiet baseline, `alert_start - 60 s`.
@@ -234,7 +420,7 @@ Read it as: "over the last minute, more than 5% of requests returned 5xx, and it
 6. **Report.** The incident page is created immediately with a deterministic template report. In the background an LLM (llama3 via Ollama) may phrase a better one. Every claim must cite evidence IDs, quoted log text must appear verbatim in E3, and any SHA must exist in E4. If validation fails twice, or Ollama is down, the template stays and the page says which one you are reading.
 7. **Human decision.** The page shows the suspect, confidence, proposed action, evidence behind each claim, and an alternative explanation. Approving or rejecting needs a written reason of at least 15 characters. A decision made less than 10 seconds after first opening the page must be confirmed. Everything lands in the audit table.
 
-## 9. Limitations (read before trusting anything here)
+## 10. Limitations (read before trusting anything here)
 
 - **Traffic and failures are simulated.** A load generator creates traffic, a patch injects the bad release, and a chaos switch creates a second failure.
 - **The bad release passes CI on purpose.** The tests for the sample endpoint always send the optional `count` parameter, so the tests never see the missing-parameter case. This reproduces a real failure type (unrepresentative test data); it is not a claim that the test suite is poor in general.
@@ -251,7 +437,7 @@ Read it as: "over the last minute, more than 5% of requests returned 5xx, and it
 
 The original QuizItOut loopholes are listed in `docs/PROJECT_EXPLANATION.md`, section 4; the new ones in `docs/EXPLANATION_INCIDENTPILOT.md`, section 8.
 
-## 10. Repository layout
+## 11. Repository layout
 
 ```
 app/                    QuizItOut FastAPI app (metrics.py, diag.py, selection.py, chaos.py are new)
@@ -266,7 +452,7 @@ Jenkinsfile.rollback    human-approved rollback job
 docs/                   setup, explanation, demo script, design
 ```
 
-## 11. Test and gate results
+## 12. Test and gate results
 
 Run on the dev machine (Python 3.11 venv). Docker, Jenkins and Ollama were not running during these runs, so the image-based checks are still open.
 
@@ -284,11 +470,11 @@ Run on the dev machine (Python 3.11 venv). Docker, Jenkins and Ollama were not r
 | Prometheus rule loads, alert fires and resolves | TBD (fill after run) |
 | End-to-end demo run | TBD (fill after run) |
 
-## 12. Future work
+## 13. Future work
 
 Webhook instead of Poll SCM, authentication on the copilot and diagnostics endpoints, staging environment with promotion, canary releases with automatic judging, pinned dependency versions, a Grafana dashboard, OCR for scanned PDFs, a second LLM or NLI pass to check quiz answer correctness, Kubernetes with readiness probes, and a real chat/pager receiver in Alertmanager.
 
-## 13. Docs
+## 14. Docs
 
 - `docs/PLAN.txt` – the original mentor plan
 - `docs/PROJECT_EXPLANATION.md` – QuizItOut build log, design decisions, loopholes and interview Q&A
@@ -299,7 +485,7 @@ Webhook instead of Poll SCM, authentication on the copilot and diagnostics endpo
 - `docs/DEMO_SCRIPT.md` – the three-person demo script
 - `docs/CHANGES.md` – the change specification this work followed
 
-## 14. Resume line
+## 15. Resume line
 
 *Built QuizItOut, a document-to-quiz app on a local LLM, delivered through a Jenkins CI/CD pipeline (80% coverage gate, retrieval quality gate, Trivy scanning, SHA-tagged Docker images), and extended it with an evidence-grounded incident copilot: Prometheus and Alertmanager alerting, deterministic deploy correlation, LLM reports validated against source evidence, and human-approved rollback with an audit trail.*
 
