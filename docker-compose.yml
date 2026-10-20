@@ -7,6 +7,9 @@ services:
       OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
       OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3}
       PREFER_CACHE: ${PREFER_CACHE:-false}
+      # lab-only switches for IncidentPilot (no authentication on these endpoints)
+      ENABLE_DIAG: "true"
+      ENABLE_CHAOS: "true"
     extra_hosts:
       - "host.docker.internal:host-gateway"
     restart: unless-stopped

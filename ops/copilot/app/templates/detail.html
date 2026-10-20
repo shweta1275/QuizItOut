@@ -1,0 +1,56 @@
+{% extends "base.html" %}{% block body %}
+{% set a = inc.analysis %}{% set ev = inc.evidence %}
+{% if inc.is_replay %}<div class="banner">Replay of a recorded incident ({{ inc.replay_name }}). Approving records the decision but never calls Jenkins.</div>{% endif %}
+<h2>Incident #{{ inc.id }} <span class="pill">{{ inc.status }}</span></h2>
+<div class="card">
+ <p><b>Suspect:</b> <code>{{ inc.suspect_sha or "none" }}</code>
+ &nbsp; <b>Confidence:</b> <span class="{{ inc.confidence }}">{{ inc.confidence }}</span>
+ &nbsp; <b>Proposed action:</b> {{ inc.action }}{% if inc.previous_good_sha %} to <code>{{ inc.previous_good_sha }}</code>{% endif %}</p>
+ <p class="muted">Chosen by fixed rules (timing and file overlap), not by the language model. Onset {{ a.onset | ts }}
+ ({{ a.onset_method }}){% if a.gap_s is not none %}, suspect deployed {{ a.gap_s | int }} s before onset{% endif %}.</p>
+</div>
+
+<div class="card">
+ <h3>Report <span class="pill">{{ "LLM report (validated)" if inc.report_source == "llm" else "Template report" }}</span></h3>
+ {% if inc.report_note %}<p class="muted">Why the template: {{ inc.report_note }}</p>{% endif %}
+ <p>{{ inc.report.summary }}</p>
+ <ul>{% for c in inc.report.claims %}
+  <li>{{ c.text }} <span class="muted">[{{ c.evidence | join(", ") }}]</span>
+   {% if c.quote %}<br><code>{{ c.quote }}</code>{% endif %}
+   <details><summary>evidence</summary>
+   {% for eid in c.evidence %}<pre>{{ eid }}: {{ ev[eid] | tojson(indent=1) }}</pre>{% endfor %}</details></li>
+ {% endfor %}</ul>
+</div>
+
+<div class="card"><h3>Alternative explanation</h3>
+ <ul>{% for t in a.alternatives %}<li>{{ t }}</li>{% endfor %}</ul>
+ <p class="muted">Correlation is not causation: that is why a human decides.</p></div>
+
+{% if inc.rollback_detail %}<div class="card"><b>Rollback:</b> {{ inc.rollback_detail }}</div>{% endif %}
+
+{% if inc.status == "awaiting_decision" %}
+<div class="card"><h3>Your decision</h3>
+ {% if error %}<p class="error">{{ error }}</p>{% endif %}
+ {% if challenge %}<p class="error">You decided in under 10 seconds of opening this page. Confirm that you read the evidence.</p>{% endif %}
+ <form method="post" action="/incidents/{{ inc.id }}/{{ challenge.decision if challenge else 'reject' }}">
+  <label>Reason (at least 15 characters, required to approve or reject)</label>
+  <textarea name="reason" required minlength="15">{{ challenge.reason if challenge else "" }}</textarea>
+  <p>
+  {% if challenge %}<input type="hidden" name="confirm" value="yes">
+   <button class="{{ 'approve' if challenge.decision == 'approve' else '' }}">I read the evidence: {{ challenge.decision }}</button>
+  {% else %}
+   {% if inc.action == "rollback_previous" %}<button class="approve" formaction="/incidents/{{ inc.id }}/approve">Approve rollback</button>{% endif %}
+   <button formaction="/incidents/{{ inc.id }}/reject">Reject / close without action</button>
+  {% endif %}</p>
+ </form>
+</div>
+{% endif %}
+
+<div class="card"><h3>Audit</h3>
+ {% if not decisions %}<p class="muted">No decision yet.</p>{% else %}
+ <table><tr><th>When</th><th>Decision</th><th>Reason</th><th>Seconds to decide</th><th>Fast-confirmed</th></tr>
+ {% for d in decisions %}<tr><td>{{ d.decided_at | ts }}</td><td>{{ d.decision }}</td><td>{{ d.reason }}</td>
+ <td>{{ d.seconds_to_decide }}</td><td>{{ "yes" if d.confirmed_fast else "no" }}</td></tr>{% endfor %}</table>{% endif %}
+</div>
+<details class="card"><summary>Raw evidence (frozen when the alert arrived)</summary><pre>{{ ev | tojson(indent=1) }}</pre></details>
+{% endblock %}

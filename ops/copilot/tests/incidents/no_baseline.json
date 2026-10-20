@@ -1,0 +1,70 @@
+{
+ "name": "no_baseline",
+ "rate": 5.0,
+ "description": "Metrics start too late for a quiet baseline: onset falls back to alert_start - for_seconds.",
+ "series": {
+  "span": [
+   -80,
+   30
+  ],
+  "step": 5,
+  "quiet": 0.0,
+  "bad": 0.4,
+  "onset": -85
+ },
+ "errors": [
+  {
+   "at": -80,
+   "exc": "KeyError: 'count'",
+   "file": "selection.py",
+   "line": 3,
+   "path": "/api/quiz/sample",
+   "msg": "'count'"
+  },
+  {
+   "at": -60,
+   "exc": "KeyError: 'count'",
+   "file": "selection.py",
+   "line": 3,
+   "path": "/api/quiz/sample",
+   "msg": "'count'"
+  },
+  {
+   "at": -40,
+   "exc": "KeyError: 'count'",
+   "file": "selection.py",
+   "line": 3,
+   "path": "/api/quiz/sample",
+   "msg": "'count'"
+  },
+  {
+   "at": -20,
+   "exc": "KeyError: 'count'",
+   "file": "selection.py",
+   "line": 3,
+   "path": "/api/quiz/sample",
+   "msg": "'count'"
+  }
+ ],
+ "deploys": [
+  {
+   "sha": "aaaaaaa",
+   "at": -2000,
+   "files_changed": "app/main.py",
+   "commit_message": "feat: add metrics"
+  },
+  {
+   "sha": "bbbbbbb",
+   "at": -100,
+   "files_changed": "app/selection.py",
+   "commit_message": "fix: simplify count handling"
+  }
+ ],
+ "expected": {
+  "suspect": "bbbbbbb",
+  "confidence": "high",
+  "action": "rollback_previous",
+  "previous_good": "aaaaaaa",
+  "onset_method": "fallback"
+ }
+}

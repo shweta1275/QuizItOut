@@ -1,0 +1,17 @@
+{% extends "base.html" %}{% block body %}
+<h2>Incidents</h2>
+{% if not incidents %}<p class="muted">No incidents yet.</p>{% else %}
+<div class="card"><table>
+<tr><th>#</th><th>Created</th><th>Status</th><th>Suspect</th><th>Confidence</th><th>Proposal</th><th>Report</th></tr>
+{% for i in incidents %}<tr>
+ <td><a href="/incidents/{{ i.id }}">{{ i.id }}</a></td>
+ <td>{{ i.created_at | ts }}{% if i.is_replay %} <span class="pill">replay</span>{% endif %}</td>
+ <td>{{ i.status }}</td><td><code>{{ i.suspect_sha or "none" }}</code></td>
+ <td class="{{ i.confidence }}">{{ i.confidence }}</td><td>{{ i.action }}</td><td>{{ i.report_source }}</td>
+</tr>{% endfor %}</table></div>{% endif %}
+<h2>Recorded deploys</h2>
+<div class="card">{% if not deploys %}<p class="muted">None yet. Run a Jenkins build (stage "Record deploy").</p>{% else %}
+<table><tr><th>When</th><th>SHA</th><th>Kind</th><th>Files changed</th><th>Commit</th></tr>
+{% for d in deploys %}<tr><td>{{ d.deployed_at | ts }}</td><td><code>{{ d.sha }}</code>{% if d.marked_bad %} <span class="pill high">marked bad</span>{% endif %}</td>
+<td>{{ d.kind }}</td><td>{{ d.files_changed }}</td><td>{{ d.commit_message }}</td></tr>{% endfor %}</table>{% endif %}</div>
+{% endblock %}

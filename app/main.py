@@ -3,25 +3,37 @@ import tempfile
 from pathlib import Path
 from typing import Annotated
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.staticfiles import StaticFiles
 
+from app import chaos, diag, metrics
 from app.config import settings
 from app.parsers import PARSERS, parse_file
 from app.quiz import fallback
 from app.quiz.generator import generate_quiz
 from app.quiz.llm import LLMUnavailable, OllamaClient
 from app.rag.chunker import chunk_text
-from app.schemas import QuizResponse
+from app.schemas import QuizResponse, SampleResponse
+from app.selection import pick_questions
 
 app = FastAPI(title="QuizItOut")
+metrics.install(app)
+app.include_router(chaos.router)
 llm_client = OllamaClient()
 STATIC = Path(__file__).parent / "static"
 
 
 @app.get("/health")
 def health():
-    return {"status": "ok"}
+    return {"status": "ok", "version": settings.app_version}
+
+
+@app.get("/internal/recent-errors")
+def recent_errors():
+    """Lab-only, no authentication: recent unhandled errors for the incident copilot."""
+    if not settings.enable_diag:
+        raise HTTPException(404, "Not found")
+    return {"version": settings.app_version, "errors": diag.recent_errors()}
 
 
 @app.get("/api/quiz/demo", response_model=QuizResponse)
@@ -33,6 +45,24 @@ def demo_quiz():
         source="cached",
         filename=cache["filename"],
         questions=cache["questions"][: settings.max_questions],
+    )
+
+
+@app.get("/api/quiz/sample", response_model=SampleResponse)
+def sample_quiz(request: Request):
+    """Cheap, LLM-free endpoint (same data as the demo) so a load generator can hit it every second."""
+    params = dict(request.query_params)
+    if "count" in params and not params["count"].isdigit():
+        raise HTTPException(422, "count must be a non-negative integer")
+    chaos.maybe_fail()
+    cache = fallback.load_cache()
+    if not cache:
+        raise HTTPException(404, "No demo cache built yet")
+    return SampleResponse(
+        source="cached",
+        filename=cache["filename"],
+        questions=pick_questions(cache["questions"], params),
+        version=settings.app_version,
     )
 
 

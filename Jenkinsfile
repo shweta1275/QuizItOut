@@ -28,8 +28,17 @@ pipeline {
     stage('Quality gate') {
       steps { sh 'docker run --rm $IMAGE:test-$TAG python -m scripts.quality_gate' }
     }
+    stage('Copilot: lint + tests') {
+      steps {
+        sh '''
+          docker build --target test -t incidentpilot-copilot:test-$TAG ops/copilot
+          docker run --rm incidentpilot-copilot:test-$TAG ruff check app tests
+          docker run --rm incidentpilot-copilot:test-$TAG
+        '''
+      }
+    }
     stage('Build runtime image') {
-      steps { sh 'docker build --target runtime -t $IMAGE:$TAG -t $IMAGE:latest .' }
+      steps { sh 'docker build --target runtime --build-arg GIT_SHA=$TAG -t $IMAGE:$TAG -t $IMAGE:latest .' }
     }
     stage('Trivy scan') {
       steps {
@@ -41,6 +50,20 @@ pipeline {
             --exit-code 1 --severity HIGH,CRITICAL --ignore-unfixed \
             --timeout 15m \
             $IMAGE:$TAG
+        '''
+      }
+    }
+    stage('Copilot: Trivy') {
+      steps {
+        sh '''
+          docker build --target runtime -t incidentpilot-copilot:ci ops/copilot
+          docker run --rm \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            -v trivy-cache:/root/.cache/ \
+            aquasec/trivy:latest image \
+            --exit-code 1 --severity HIGH,CRITICAL --ignore-unfixed \
+            --timeout 15m \
+            incidentpilot-copilot:ci
         '''
       }
     }
@@ -77,6 +100,31 @@ pipeline {
         '''
       }
     }
+    stage('Record deploy') {
+      // Tells the IncidentPilot copilot which release is live and which files it changed.
+      // Never fails the build: if the copilot is down we only print a warning.
+      steps {
+        sh '''
+          # $LAST_GOOD still holds the PREVIOUS good sha here ('post success' updates it later)
+          PREV=""
+          [ -f "$LAST_GOOD" ] && PREV=$(cat "$LAST_GOOD")
+          FILES=""
+          if [ -n "$PREV" ] && [ "$PREV" != "$TAG" ] && git cat-file -e "$PREV^{commit}" 2>/dev/null; then
+            FILES=$(git diff --name-only "$PREV" "$TAG" | paste -s -d, - || true)
+          fi
+          [ -n "$FILES" ] || FILES=$(git diff-tree --no-commit-id --name-only -r "$TAG" | paste -s -d, - || true)
+          MSG=$(git log -1 --format=%s "$TAG" || true)
+          curl -fsS --max-time 10 -X POST http://localhost:8001/deploys \
+            --data-urlencode "sha=$TAG" \
+            --data-urlencode "image=$IMAGE:$TAG" \
+            --data-urlencode "commit_message=$MSG" \
+            --data-urlencode "files_changed=$FILES" \
+            --data-urlencode "status=succeeded" \
+            --data-urlencode "kind=deploy" \
+          || echo "WARNING: copilot unreachable, deploy not recorded"
+        '''
+      }
+    }
   }
   post {
     success { sh 'echo $TAG > $LAST_GOOD' }
@@ -85,6 +133,15 @@ pipeline {
         if [ -f "$LAST_GOOD" ]; then
           echo "Rolling back to $(cat $LAST_GOOD)"
           IMAGE_TAG=$(cat $LAST_GOOD) docker compose -p quizitout up -d
+          # best effort: let the copilot know which version is live again
+          curl -fsS --max-time 10 -X POST http://localhost:8001/deploys \
+            --data-urlencode "sha=$(cat $LAST_GOOD)" \
+            --data-urlencode "image=$IMAGE:$(cat $LAST_GOOD)" \
+            --data-urlencode "commit_message=automatic rollback after failed build" \
+            --data-urlencode "files_changed=" \
+            --data-urlencode "status=succeeded" \
+            --data-urlencode "kind=rollback" \
+          || echo "WARNING: copilot unreachable, rollback not recorded"
         else
           echo "No previous good version to roll back to"
         fi

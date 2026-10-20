@@ -1,0 +1,75 @@
+{
+ "name": "two_deploys",
+ "rate": 5.0,
+ "description": "Two deploys 3 minutes apart; only the first touched the failing file.",
+ "series": {
+  "span": [
+   -900,
+   30
+  ],
+  "step": 5,
+  "quiet": 0.0,
+  "bad": 0.4,
+  "onset": -85
+ },
+ "errors": [
+  {
+   "at": -80,
+   "exc": "KeyError: 'count'",
+   "file": "selection.py",
+   "line": 3,
+   "path": "/api/quiz/sample",
+   "msg": "'count'"
+  },
+  {
+   "at": -60,
+   "exc": "KeyError: 'count'",
+   "file": "selection.py",
+   "line": 3,
+   "path": "/api/quiz/sample",
+   "msg": "'count'"
+  },
+  {
+   "at": -40,
+   "exc": "KeyError: 'count'",
+   "file": "selection.py",
+   "line": 3,
+   "path": "/api/quiz/sample",
+   "msg": "'count'"
+  },
+  {
+   "at": -20,
+   "exc": "KeyError: 'count'",
+   "file": "selection.py",
+   "line": 3,
+   "path": "/api/quiz/sample",
+   "msg": "'count'"
+  }
+ ],
+ "deploys": [
+  {
+   "sha": "aaaaaaa",
+   "at": -3000,
+   "files_changed": "app/main.py",
+   "commit_message": "feat: add metrics"
+  },
+  {
+   "sha": "bbbbbbb",
+   "at": -400,
+   "files_changed": "app/selection.py",
+   "commit_message": "fix: simplify count handling"
+  },
+  {
+   "sha": "ccccccc",
+   "at": -220,
+   "files_changed": "README.md",
+   "commit_message": "docs: typo"
+  }
+ ],
+ "expected": {
+  "suspect": "bbbbbbb",
+  "confidence": "high",
+  "action": "rollback_previous",
+  "previous_good": "aaaaaaa"
+ }
+}

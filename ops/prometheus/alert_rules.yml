@@ -1,0 +1,12 @@
+groups:
+  - name: quizitout
+    rules:
+      - alert: HighErrorRate
+        expr: >
+          (sum(rate(http_requests_total{status=~"5.."}[1m])) or vector(0))
+          / sum(rate(http_requests_total[1m])) > 0.05
+        for: 1m
+        labels:
+          severity: page
+        annotations:
+          summary: "5xx ratio above 5% for 1 minute"

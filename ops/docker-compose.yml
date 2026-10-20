@@ -1,0 +1,51 @@
+# Monitoring + copilot. Separate compose project on purpose: Jenkins recreates the app's project
+# on every deploy, and this stack must keep running through that.
+# Start from the HOST terminal:  docker compose -f ops/docker-compose.yml --env-file ops/.env up -d --build
+name: incidentpilot
+
+services:
+  prometheus:
+    image: prom/prometheus:latest
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus/alert_rules.yml:/etc/prometheus/alert_rules.yml:ro
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+
+  alertmanager:
+    image: prom/alertmanager:latest
+    ports:
+      - "9093:9093"
+    volumes:
+      - ./alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+    restart: unless-stopped
+
+  loadgen:
+    build: ./loadgen
+    environment:
+      TARGET: http://host.docker.internal:8000
+      RATE: "5"
+      OMIT_COUNT_RATIO: "0.4"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+
+  copilot:
+    build:
+      context: ./copilot
+      target: runtime
+    ports:
+      - "8001:8001"
+    env_file:
+      - .env
+    volumes:
+      - copilot_data:/data
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+
+volumes:
+  copilot_data:

@@ -10,3 +10,4 @@ sentence-transformers
 faiss-cpu
 rank-bm25
 numpy
+prometheus_client>=0.20

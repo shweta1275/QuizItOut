@@ -25,3 +25,7 @@ class QuizResponse(BaseModel):
     source: str  # "live" or "cached"
     filename: str
     questions: list[MCQ]
+
+
+class SampleResponse(QuizResponse):
+    version: str

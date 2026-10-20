@@ -1,0 +1,71 @@
+// Job: quizitout-rollback. Started by the IncidentPilot copilot AFTER a human approved a rollback
+// (or by hand: Build with Parameters). Deploys an exact older image tag, smoke-tests it, reports back.
+pipeline {
+  agent any
+  options { disableConcurrentBuilds() }
+  parameters {
+    string(name: 'ROLLBACK_TO', defaultValue: '', description: 'Short git SHA (image tag) to deploy, 7-40 hex characters')
+    string(name: 'INCIDENT_ID', defaultValue: '0', description: 'Copilot incident number (digits); 0 for a manual run')
+  }
+  environment {
+    IMAGE     = 'shwetak1275/quizitout'
+    LAST_GOOD = "${JENKINS_HOME}/quizitout_last_good"
+    // same PATH handling as the main Jenkinsfile (Homebrew Jenkins has a minimal PATH)
+    PATH      = "${env.HOME}/.docker/bin:/usr/local/bin:/opt/homebrew/bin:${env.PATH}"
+  }
+  stages {
+    stage('Validate') {
+      steps {
+        sh '''
+          echo "$ROLLBACK_TO" | grep -Eq '^[0-9a-f]{7,40}$' || { echo "ROLLBACK_TO must be 7-40 hex characters"; exit 1; }
+          echo "$INCIDENT_ID" | grep -Eq '^[0-9]+$' || { echo "INCIDENT_ID must be digits"; exit 1; }
+        '''
+      }
+    }
+    stage('Checkout') {
+      steps { checkout scm }
+    }
+    stage('Deploy') {
+      steps { sh 'IMAGE_TAG=$ROLLBACK_TO docker compose -p quizitout up -d' }
+    }
+    stage('Smoke test') {
+      steps {
+        sh '''
+          CID=$(docker compose -p quizitout ps -q app)
+          for i in $(seq 1 20); do
+            STATUS=$(docker inspect -f '{{.State.Health.Status}}' $CID)
+            [ "$STATUS" = "healthy" ] && break
+            sleep 3
+          done
+          [ "$STATUS" = "healthy" ] || { echo "App never became healthy"; exit 1; }
+          docker compose -p quizitout exec -T app python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/quiz/demo')"
+        '''
+      }
+    }
+    stage('Record deploy') {
+      steps {
+        sh '''
+          curl -fsS --max-time 10 -X POST http://localhost:8001/deploys \
+            --data-urlencode "sha=$ROLLBACK_TO" \
+            --data-urlencode "image=$IMAGE:$ROLLBACK_TO" \
+            --data-urlencode "commit_message=human-approved rollback (incident $INCIDENT_ID)" \
+            --data-urlencode "files_changed=" \
+            --data-urlencode "status=succeeded" \
+            --data-urlencode "kind=rollback" \
+          || echo "WARNING: copilot unreachable, rollback not recorded"
+        '''
+      }
+    }
+  }
+  post {
+    success { sh 'echo $ROLLBACK_TO > $LAST_GOOD' }
+    always {
+      script { env.RB_STATUS = (currentBuild.currentResult == 'SUCCESS') ? 'ok' : 'failed' }
+      sh '''
+        curl -fsS --max-time 10 -X POST "http://localhost:8001/incidents/$INCIDENT_ID/rollback-result" \
+          --data-urlencode "status=$RB_STATUS" --data-urlencode "sha=$ROLLBACK_TO" \
+        || echo "WARNING: copilot callback failed (best effort)"
+      '''
+    }
+  }
+}

@@ -1,0 +1,70 @@
+{
+ "name": "marked_bad_excluded",
+ "rate": 5.0,
+ "description": "The only earlier deploy is marked bad: no safe rollback target.",
+ "series": {
+  "span": [
+   -900,
+   30
+  ],
+  "step": 5,
+  "quiet": 0.0,
+  "bad": 0.4,
+  "onset": -85
+ },
+ "errors": [
+  {
+   "at": -80,
+   "exc": "KeyError: 'count'",
+   "file": "selection.py",
+   "line": 3,
+   "path": "/api/quiz/sample",
+   "msg": "'count'"
+  },
+  {
+   "at": -60,
+   "exc": "KeyError: 'count'",
+   "file": "selection.py",
+   "line": 3,
+   "path": "/api/quiz/sample",
+   "msg": "'count'"
+  },
+  {
+   "at": -40,
+   "exc": "KeyError: 'count'",
+   "file": "selection.py",
+   "line": 3,
+   "path": "/api/quiz/sample",
+   "msg": "'count'"
+  },
+  {
+   "at": -20,
+   "exc": "KeyError: 'count'",
+   "file": "selection.py",
+   "line": 3,
+   "path": "/api/quiz/sample",
+   "msg": "'count'"
+  }
+ ],
+ "deploys": [
+  {
+   "sha": "aaaaaaa",
+   "at": -2000,
+   "files_changed": "app/main.py",
+   "commit_message": "feat: add metrics",
+   "marked_bad": 1
+  },
+  {
+   "sha": "bbbbbbb",
+   "at": -150,
+   "files_changed": "app/selection.py",
+   "commit_message": "fix: simplify count handling"
+  }
+ ],
+ "expected": {
+  "suspect": "bbbbbbb",
+  "confidence": "high",
+  "action": "no_action",
+  "previous_good": null
+ }
+}

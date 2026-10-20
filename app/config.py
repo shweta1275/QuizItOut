@@ -13,6 +13,9 @@ class Settings:
     max_upload_mb: int = int(os.getenv("MAX_UPLOAD_MB", "10"))
     demo_quiz_path: str = os.getenv("DEMO_QUIZ_PATH", "data/demo/demo_quiz.json")
     prefer_cache: bool = os.getenv("PREFER_CACHE", "false").lower() == "true"
+    app_version: str = os.getenv("APP_VERSION", "dev")
+    enable_diag: bool = os.getenv("ENABLE_DIAG", "false").lower() == "true"
+    enable_chaos: bool = os.getenv("ENABLE_CHAOS", "false").lower() == "true"
 
 
 settings = Settings()

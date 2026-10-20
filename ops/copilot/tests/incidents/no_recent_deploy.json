@@ -1,0 +1,63 @@
+{
+ "name": "no_recent_deploy",
+ "rate": 5.0,
+ "description": "Nothing was deployed in the last hour.",
+ "series": {
+  "span": [
+   -900,
+   30
+  ],
+  "step": 5,
+  "quiet": 0.0,
+  "bad": 0.4,
+  "onset": -85
+ },
+ "errors": [
+  {
+   "at": -80,
+   "exc": "UpstreamUnavailable: ollama (simulated)",
+   "file": "chaos.py",
+   "line": 24,
+   "path": "/api/quiz/sample",
+   "msg": "ollama (simulated)"
+  },
+  {
+   "at": -60,
+   "exc": "UpstreamUnavailable: ollama (simulated)",
+   "file": "chaos.py",
+   "line": 24,
+   "path": "/api/quiz/sample",
+   "msg": "ollama (simulated)"
+  },
+  {
+   "at": -40,
+   "exc": "UpstreamUnavailable: ollama (simulated)",
+   "file": "chaos.py",
+   "line": 24,
+   "path": "/api/quiz/sample",
+   "msg": "ollama (simulated)"
+  },
+  {
+   "at": -20,
+   "exc": "UpstreamUnavailable: ollama (simulated)",
+   "file": "chaos.py",
+   "line": 24,
+   "path": "/api/quiz/sample",
+   "msg": "ollama (simulated)"
+  }
+ ],
+ "deploys": [
+  {
+   "sha": "aaaaaaa",
+   "at": -7200,
+   "files_changed": "app/main.py",
+   "commit_message": "feat: add metrics"
+  }
+ ],
+ "expected": {
+  "suspect": null,
+  "confidence": "low",
+  "action": "no_action",
+  "previous_good": null
+ }
+}

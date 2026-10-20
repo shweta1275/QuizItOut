@@ -5,6 +5,8 @@ This file was written while the project was being built. It follows the build ph
 (and why)**. The last sections cover the known loopholes and the questions an interviewer or
 resume screener is likely to ask, with short answers.
 
+> **Continued:** the project was extended with monitoring and an incident copilot. The "rollback only covers the smoke test" and "no monitoring" loopholes below are addressed in `docs/EXPLANATION_INCIDENTPILOT.md`.
+
 > **What do I still have to do?** Jump to **section 6**: a step-by-step checklist (GitHub →
 > Docker Hub → Jenkins → demo), written for someone who has never used these tools.
 

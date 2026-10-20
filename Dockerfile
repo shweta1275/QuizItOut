@@ -34,6 +34,9 @@ FROM base AS runtime
 # pip isn't needed to run the app, and its vendored urllib3/msgpack/setuptools carry
 # fixable HIGH CVEs (Trivy reads pip/_vendor/bom.cdx.json). Fewer tools = smaller attack surface.
 RUN python -m pip uninstall -y pip && useradd -m appuser
+# release identity: after every heavy layer, so a new SHA never invalidates the torch/model layers
+ARG GIT_SHA=dev
+ENV APP_VERSION=$GIT_SHA
 USER appuser
 EXPOSE 8000
 HEALTHCHECK --interval=10s --timeout=3s --retries=5 \
