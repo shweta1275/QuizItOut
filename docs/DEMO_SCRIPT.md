@@ -262,210 +262,264 @@ Terminal:
 
 ---
 
-## I. Full runbook: from a broken build to a live rollback (copy and paste)
+## I. Full demo runbook: from a green build to a human-approved rollback
 
-This section is the exact order of work for this machine (Jenkins on port 8081, branch `main`). Every command can be pasted into a terminal. Run them from the project folder:
+Everything below is written for this machine: Jenkins on **port 8081**, branch **`main`**, project folder as shown. Every command can be pasted into a terminal. Each step says **what the command does**, **what you should see**, and **what it proves**. Steps marked with a camera give a screenshot for the report (figure numbers refer to `DevOps_Mini_Project_Report_v2.docx`).
+
+Open one terminal and stay in it for the whole run:
 
 ```bash
 cd "/Users/shwetakarandikar/Documents/cllz stuff/4th year/DevOps/QuizItOut"
 ```
 
-### I.0 What was wrong, in plain words
+### I.1 The picture in one minute (read this first)
 
-1. **Jenkins build #18 failed in stage 6 (Copilot: lint + tests).** The test `test_replay_creates_incident_page_with_banner_and_badge` expects the "Template report" badge. Inside Docker, `host.docker.internal` resolves to the Mac, so the test reached the real Ollama, got a valid LLM report and the badge said "LLM report (validated)". The fix is in `ops/copilot/tests/conftest.py`: tests now point Ollama at a dead address. The failing build triggered the automatic rollback, which is why the copilot shows a `rollback` deploy of `0c15511`.
-2. **Incident #14 was a replay**, created by `fake_alert.sh`. Approving a replay never calls Jenkins, by design. That is why no `quizitout-rollback` build appeared.
-3. **The bad release was never pushed.** The commit `b99d7f2` named "perf: faster question selection" contains only the report `.docx`; `app/selection.py` is still the good version.
-4. **`ops/.env` is not ready for a real approval:** `JENKINS_USER` and `JENKINS_TOKEN` are empty and `JENKINS_URL` points to port 8080, but this Jenkins runs on **8081**.
-
-### I.1 Fix `ops/.env` (once)
-
-1. Open Jenkins at http://localhost:8081, click your user name (top right), **Security**, **API Token**, **Add new Token**, name it `copilot`, **Generate**, copy the token (it is shown once).
-2. Open the file and set these three lines (`JENKINS_URL` changes from 8080 to 8081):
-
-```bash
-open -e ops/.env
 ```
-```
-JENKINS_URL=http://host.docker.internal:8081
-JENKINS_USER=<your Jenkins user name>
-JENKINS_TOKEN=<the token you just copied>
+ YOU push code ──► GitHub ──► Jenkins job "quizitout" (13 stages) ──► app container :8000
+                                   │ last stage "Record deploy" tells the copilot: SHA + files changed
+                                   ▼
+ loadgen ──5 req/s──► app :8000 ──/metrics──► Prometheus :9090 ──rule──► Alertmanager :9093 ──webhook──► COPILOT :8001
+                                                                                                   │ evidence + suspect + report
+                                                          YOU read it, type a reason, click Approve ◄┘
+                                                                                                   │
+                         Jenkins job "quizitout-rollback" ◄── copilot calls Jenkins with an API token
+                                   └─► redeploys the OLD image, smoke test, tells the copilot "ok"
 ```
 
-3. Restart the copilot so it reads the file, then test the credentials (expect `200`):
+What the demo shows, in three sentences: a release can pass every CI check and still break for real traffic. Monitoring notices within about a minute and the copilot shows which release most likely caused it, with evidence. A human approves, and Jenkins puts the old version back.
 
-```bash
-docker compose -f ops/docker-compose.yml --env-file ops/.env up -d copilot
-curl -s -o /dev/null -w '%{http_code}\n' -u 'YOUR_USER:YOUR_TOKEN' http://localhost:8081/api/json
-```
+The names you will use: **SHA-A** is the good version running before the bug. **SHA-B** is the bad release you push. The rollback goes from B back to A.
 
-`ops/.env` is git-ignored, so the token is never pushed.
+### I.2 Where things stand right now
 
-### I.2 Jenkins settings to check (once)
+- Jenkins jobs `quizitout` (branch `*/main`) and `quizitout-rollback` exist, and the rollback job's manual test (build #3) was green.
+- `ops/.env` has `JENKINS_URL` (8081), `JENKINS_USER` and the token filled in.
+- The copilot database was reset; it only knows one old deploy. The running app is still the old `0c15511`.
+- The repository has uncommitted edits (the test fix is already pushed, this runbook is not).
 
-| Job | Where | Must be |
-|---|---|---|
-| `quizitout` | Configure, Pipeline | Branch Specifier `*/main` (not `*/incidentpilot`, because the work is merged), Script Path `Jenkinsfile`, Poll SCM `H/2 * * * *` |
-| `quizitout-rollback` | http://localhost:8081/job/quizitout-rollback/ | Exists, Branch Specifier `*/main`, Script Path `Jenkinsfile.rollback`, and the left menu says **Build with Parameters**. If the job is missing or only shows "Build Now", follow `docs/SETUP_INCIDENTPILOT.md` section 5. |
+So the first job is to **make SHA-A**: push this runbook, let Jenkins build it, and let the copilot record it.
 
-### I.3 Push the repo fix (you commit and push)
+### I.3 Preparation (do this once, about 10 minutes)
 
-The test fix and this runbook are already edited in your working tree. Check, commit and push it:
+**Step P1: commit and push this runbook.**
 
 ```bash
 git status --short
-git add ops/copilot/tests/conftest.py docs/DEMO_SCRIPT.md
-git commit -m "fix: copilot tests must not reach a real Ollama; add demo runbook"
+git add docs/DEMO_SCRIPT.md
+git commit -m "docs: full demo runbook"
 git push
 ```
 
-Optional local proof before you push (the second line pretends Ollama is reachable, like inside Docker):
+*What it does:* `git status` shows which files changed (only `docs/DEMO_SCRIPT.md` should be listed). The next three lines save the file and upload it to GitHub, because Jenkins builds from GitHub, not from your disk. *Why it matters:* `inject_bug.sh` later refuses to run on a dirty working tree, so everything must be committed first. This commit becomes SHA-A.
 
-```bash
-(cd ops/copilot && ../../.venv/bin/python -m pytest -q)
-(cd ops/copilot && OLLAMA_BASE_URL=http://localhost:11434 ../../.venv/bin/python -m pytest -q)
-```
-
-Both must print `81 passed`.
-
-### I.4 Start from a clean copilot, then get the green build
-
-Reset the copilot database (it holds 14 old incidents, 12 of them still "awaiting decision") and start everything:
-
-```bash
-docker compose -f ops/docker-compose.yml down -v
-docker compose -f ops/docker-compose.yml --env-file ops/.env up -d --build
-docker compose -f ops/docker-compose.yml ps
-```
-
-Warm up the model so the first LLM report is quick:
+**Step P2: warm up the local model** (so the first LLM report is quick):
 
 ```bash
 ollama run llama3 "hi"
 ```
 
-Now in Jenkins click **quizitout**, **Build Now**. Expect **all 13 stages green** (about 2 to 5 minutes). Then confirm:
+*What it does:* loads llama3 into memory. You should see a short greeting; type `/bye` to leave.
+
+**Step P3: check the monitoring stack is up.**
 
 ```bash
-curl -s localhost:8000/health
-curl -s localhost:8001/deploys
-git rev-parse --short HEAD
+docker compose -f ops/docker-compose.yml ps
+curl -s localhost:8001/health
+curl -s localhost:9093/-/healthy
+curl -s localhost:9090/api/v1/targets | python3 -c "import json,sys; print([(t['scrapeUrl'], t['health']) for t in json.load(sys.stdin)['data']['activeTargets']])"
 ```
 
-The `version` in `/health` must equal the short SHA from `git rev-parse`, and `/deploys` must list that SHA with `"kind":"deploy"`. Call this SHA **SHA-A**: it is the version the rollback will return to. If `/deploys` is empty, the Record deploy stage did not reach the copilot; check the stage output in Jenkins.
+*What you should see:* four containers `Up` (prometheus, alertmanager, loadgen, copilot), the copilot answers, Alertmanager answers, and the Prometheus target prints `up`.
+*Screenshots:* 📸 **Figure 13** (the `ps` output) and 📸 **Figure 14** (browser: http://localhost:9090/targets, target UP).
 
-### I.5 Pre-flight checklist (2 minutes before the demo)
+**Step P4: run the build that creates SHA-A.** In Jenkins (http://localhost:8081) open **quizitout** and click **Build Now**. Wait for **all 13 stages to turn green** (2 to 5 minutes).
+*What each stage did, in one line each:* checkout, build the test image, lint, app tests (80% gate), retrieval gate, copilot tests and replay gate, build the runtime image, Trivy scan of the app, Trivy scan of the copilot image, push to Docker Hub, deploy, smoke test, record the deploy in the copilot.
+*Screenshots:* 📸 the Stage View of this green build (also good for **Figure 24**), the console of "Copilot: lint + tests" 📸 **Figure 22**, "Copilot: Trivy" 📸 **Figure 19**, "Unit + API tests" 📸 **Figure 20**.
+
+**Step P5: confirm SHA-A is live and the copilot knows it.**
 
 ```bash
-git status --short                                   # must print nothing (inject_bug.sh refuses a dirty tree)
-curl -s localhost:8000/health                        # version = SHA-A
-curl -s localhost:9090/api/v1/targets | python3 -c "import json,sys; print([(t['scrapeUrl'], t['health']) for t in json.load(sys.stdin)['data']['activeTargets']])"   # health: up
-curl -s localhost:8001/deploys | head -c 300; echo   # SHA-A listed
-docker logs --tail 3 incidentpilot-loadgen-1         # traffic flowing, 5xx = 0
+git rev-parse --short HEAD
+curl -s localhost:8000/health
+curl -s localhost:8001/deploys | python3 -m json.tool | head -20
+```
+
+*What you should see:* the first two commands print the **same SHA** (this is SHA-A, write it down). `/deploys` lists it with `"kind": "deploy"` and the files it changed. If `/deploys` does not list it, the Record deploy stage could not reach the copilot; read that stage's console.
+*Screenshot:* 📸 **Figure 16**: open http://localhost:8001, the "Recorded deploys" table with the SHA and files changed.
+
+**Step P6: pre-flight checks** (run right before you start the demo):
+
+```bash
+git status --short
+curl -s localhost:9090/api/v1/alerts
+docker logs --tail 3 incidentpilot-loadgen-1
+```
+
+*What you should see:* no output from `git status` (clean tree), `"alerts":[]` (nothing firing), and loadgen lines with `5xx=0`. The copilot home page should list **no open real incident** (old replay incidents are harmless).
+
+Open your tabs now:
+
+```bash
 open http://localhost:8000 http://localhost:8081 http://localhost:9090 http://localhost:9093 http://localhost:8001
 ```
 
-The copilot home page must show **no open incident** (an empty list after the reset in I.4).
+### I.4 The demo, step by step
 
-### I.5b Optional: the error ratio as one number
+**Step 1: show the app works (the happy path).** In the app tab (http://localhost:8000) upload `data/demo/demo_doc.pdf` and click **Make quiz**. It takes about a minute. *What it proves:* the application itself works: a local LLM writes questions, each with an evidence sentence. Say: "this is the road in, from code to a running app".
+
+**Step 2: ship the bad release.**
+
+```bash
+./scripts/inject_bug.sh
+git log --oneline -2
+git diff HEAD~1 -- app/selection.py
+```
+
+*What it does:* applies `scripts/bad_release.patch`, which changes one line in `app/selection.py` from `int(params.get("count", len(questions)))` to `int(params["count"])`, and commits it as "fix: simplify count handling". The script stops after the commit; it never pushes. *What you should see:* the new commit and a one-line diff. Say: "a small, harmless-looking change: now the `count` parameter is required".
+
+```bash
+git push
+```
+
+*What it does:* uploads the bad commit to GitHub. This commit is **SHA-B**. Note it down: `git rev-parse --short HEAD`.
+
+**Step 3: run the pipeline and show that everything is green.** In Jenkins click **quizitout**, **Build Now** (do not wait for Poll SCM, it can take up to 2 minutes). Open the build's **Stages** view and let all 13 stages go green.
+*What it proves, and what to say:* "Lint passed, 59 tests passed with 99% coverage, the quality gate passed, Trivy found nothing, the smoke test passed. The checks cannot see this bug, because the tests for this endpoint always send `count`, and the smoke test only calls `/health` and `/api/quiz/demo`."
+*Screenshot:* 📸 **Figure 26**: the Stage View with all 13 stages green for this build.
+
+**Step 4: confirm the bad version is live and really broken.**
+
+```bash
+curl -s localhost:8000/health
+curl -s -o /dev/null -w 'without count: %{http_code}\n' localhost:8000/api/quiz/sample
+curl -s -o /dev/null -w 'with count=3 : %{http_code}\n' "localhost:8000/api/quiz/sample?count=3"
+```
+
+*What you should see:* `version` is SHA-B, `without count: 500`, `with count=3 : 200`. *What it proves:* the new release fails only for requests that omit the optional parameter, exactly what the load generator sends 40% of the time.
+
+**Step 5: watch the failure appear. This is the moment to show the error.** It is shown in monitoring, not in Jenkins, because Jenkins saw nothing wrong.
+
+First, the numbers (run it a few times, 10 seconds apart):
 
 ```bash
 curl -s localhost:9090/api/v1/query --data-urlencode 'query=(sum(rate(http_requests_total{status=~"5.."}[1m])) or vector(0)) / sum(rate(http_requests_total[1m]))' | python3 -c "import json,sys; print(json.load(sys.stdin)['data']['result'][0]['value'][1])"
 ```
 
-Healthy is `0`. During the bad release it climbs towards `0.4`.
+*What it does:* asks Prometheus for the share of requests that returned 5xx over the last minute. It was `0`; it climbs towards `0.4` (40%).
 
-### I.6 The demo run, step by step
-
-**Step 1: ship the bad release.** This applies `scripts/bad_release.patch` (one line in `app/selection.py`), commits it as "fix: simplify count handling" and stops. You push.
+The raw error the app recorded:
 
 ```bash
-./scripts/inject_bug.sh
-git push
+curl -s localhost:8000/internal/recent-errors | python3 -m json.tool | head -20
 ```
 
-Say: "A small, harmless-looking change."
+*What you should see:* `"exc": "KeyError: 'count'"`, `"file": "selection.py"`. This is the evidence the copilot will use.
 
-**Step 2: run the pipeline.** In Jenkins click **quizitout**, **Build Now** (do not wait for Poll SCM, it can take up to 2 minutes). **Show that every stage goes green**, including Trivy and the smoke test. This is the point of the demo: the checks cannot see this bug because the tests always send `count` and the smoke test only calls `/health` and `/api/quiz/demo`.
+Now the browser:
+- Prometheus graph (http://localhost:9090/graph), paste the same query, time range 15 minutes: the line jumps after the deploy. 📸 **Figure 27**.
+- After about 1 to 1.5 minutes (the rule needs 5% for a full minute): http://localhost:9090/alerts shows **HighErrorRate FIRING**. 📸 **Figure 28**.
+- Then http://localhost:9093 shows the same alert, which Alertmanager forwards to the copilot. 📸 **Figure 29**.
 
-**Step 3: confirm the bad version is live.**
+**Step 6: open the incident in the copilot.** Go to http://localhost:8001 and open the newest incident (refresh the list if it is not there yet). It must **not** have the yellow "Replay" banner.
+*What you should see and say:*
+- **Suspect** = SHA-B, **Confidence: high**, **Proposed action: rollback_previous to SHA-A.** "Chosen by fixed rules (timing and file overlap), not by the language model."
+- Click **evidence** under a claim: the raw log line `KeyError: 'count'` in `selection.py`, which is exactly the file this release changed.
+- The report badge says "Template report" at first and may switch to "LLM report (validated)" after about a minute (refresh). Both are fine: the LLM only phrases the text, and its output is rejected unless every claim cites real evidence.
+- **Alternative explanation:** what else could cause this, and what would change my mind.
+*Screenshots:* 📸 **Figure 30** (top half: suspect, confidence, proposal, report with badge) and 📸 **Figure 31** (scroll down: alternative explanation and the decision form).
+
+**Step 7: approve the rollback.** In the decision form type a reason of at least 15 characters, for example:
+
+```
+KeyError in selection.py changed by this release, matches onset
+```
+
+and click **Approve rollback**. If you click within 10 seconds of opening the page, the page asks you to confirm that you read the evidence: that is the rubber-stamp guard, click the confirm button.
+*What happens behind the scenes:* the copilot stores your decision (reason, seconds taken) in the audit table, then calls Jenkins `buildWithParameters` on `quizitout-rollback` with an API token. The SHA to deploy comes from its own stored record, never from the web form.
+
+**Step 8: watch the rollback run.** Open http://localhost:8081/job/quizitout-rollback/ . A new build starts within seconds. Stages: Validate (checks the SHA and incident id), Checkout, Deploy (the same compose command, with the old tag), Smoke test, Record deploy.
+*Screenshot:* 📸 **Figure 32**: the Stage View of that rollback build, all green.
+
+Then verify from the terminal:
 
 ```bash
 curl -s localhost:8000/health
-curl -s -o /dev/null -w 'no count: %{http_code}\n' localhost:8000/api/quiz/sample
-curl -s -o /dev/null -w 'count=3 : %{http_code}\n' "localhost:8000/api/quiz/sample?count=3"
+curl -s -o /dev/null -w 'without count: %{http_code}\n' localhost:8000/api/quiz/sample
 ```
 
-Expect a new version, `no count: 500` and `count=3 : 200`.
+*What you should see:* `version` is **SHA-A** again and the request without `count` returns **200**. Refresh the incident page: the status is `rollback_ok`, and in the deploys table SHA-B is marked **marked bad** (so a later incident can never propose rolling "back" to it).
 
-**Step 4: show the error. This is the moment to show it, not in Jenkins.** Within 20 to 30 seconds:
-
-- Prometheus graph (http://localhost:9090/graph), paste the query from I.5b, the ratio climbs towards 0.4.
-- After about 1 to 1.5 minutes: http://localhost:9090/alerts shows **HighErrorRate FIRING**, then http://localhost:9093 shows the alert.
-- Optional proof of the cause: `curl -s localhost:8000/internal/recent-errors | python3 -m json.tool | head -20` shows `KeyError: 'count'` in `selection.py`.
-
-**Step 5: open the incident.** Go to http://localhost:8001 and open the newest incident. It must have **no yellow "Replay" banner**. Check: suspect = the SHA you just pushed, confidence high, action `rollback_previous` to SHA-A, and the evidence (E3) shows `selection.py`. Click an "evidence" link to show the raw log line.
-
-**Step 6: approve.** Type a reason of at least 15 characters, for example `KeyError in selection.py changed by this release, matches onset`, and click **Approve rollback**. If you click within 10 seconds of opening the page it asks you to confirm: this is the rubber-stamp guard, click the confirm button.
-
-**Step 7: watch the rollback.** Open http://localhost:8081/job/quizitout-rollback/ . A new build starts within seconds (Validate, Checkout, Deploy, Smoke test, Record deploy). Then:
+**Step 9: the errors stop and the alert resolves.**
 
 ```bash
-curl -s localhost:8000/health
-curl -s -o /dev/null -w 'no count: %{http_code}\n' localhost:8000/api/quiz/sample
+curl -s localhost:9090/api/v1/query --data-urlencode 'query=(sum(rate(http_requests_total{status=~"5.."}[1m])) or vector(0)) / sum(rate(http_requests_total[1m]))' | python3 -c "import json,sys; print(json.load(sys.stdin)['data']['result'][0]['value'][1])"
 ```
 
-`version` must be SHA-A again and the request without `count` returns `200`. The incident status becomes `rollback_ok`; the suspect is marked bad in the deploy list.
+*What you should see:* the ratio falls back to `0` within about a minute (the one-minute window has to drain), and about a minute after that the alert shows as resolved on http://localhost:9090/alerts and http://localhost:9093. Scroll to the **Audit** table on the incident page: your reason, the decision, and the seconds you took to decide.
+*Screenshot:* 📸 **Figure 33**: the Prometheus graph after the rollback (line falling) next to the incident page showing `rollback_ok` and the Audit row.
 
-**Step 8: errors stop, alert resolves.** The ratio falls to 0 within about a minute and the alert resolves about one minute after that (the one-minute rate window must drain). The audit table on the incident page shows your reason and the seconds you took to decide.
-
-**Step 9: fix forward.** The rollback is only a mitigation; git still contains the bad commit. Revert it, push, and build once so the repository and the running app agree:
+**Step 10: fix forward (do not skip).** The rollback is only a mitigation. Git still contains the bad commit, so the next build would deploy the bug again.
 
 ```bash
 ./scripts/revert_bug.sh
 git push
 ```
 
-Then **Build Now** on `quizitout` (wait until the rollback job has finished before you do this: the two jobs do not lock each other).
+*What it does:* creates a normal "Revert" commit that undoes SHA-B and uploads it. Then, **only after the rollback job has finished**, click **Build Now** on `quizitout`. The app now runs the reverted, healthy code, and the repository and the running app agree again. **Never click Build Now on `quizitout` between Step 8 and this step**: it would redeploy SHA-B.
 
-### I.7 Optional extras (after the main run)
+### I.5 Extra cases (after the main run)
 
-**Wrong proposal (a human should reject).** Needs a docs-only release first so the copilot sees a recent, unrelated deploy:
+**Case X1: the wrong proposal that a human should reject.** The copilot is not always right, and that is why a human decides.
 
 ```bash
 ./scripts/harmless_change.sh
 git push
 ```
 
-Build Now, wait until it is deployed and healthy, then:
+*What it does:* appends a dated line to `docs/CHANGELOG.md` (a docs-only release that touches no code) and commits it. Click **Build Now**, wait until the build is green and the app is healthy, then:
 
 ```bash
 ./scripts/chaos_on.sh
 ```
 
-After the alert the copilot proposes a rollback with medium confidence, but the errors come from `chaos.py`, which this release did not touch. Open the incident, read the alternative explanation, **Reject** with a reason such as `errors come from chaos.py, a file this release did not modify`, then:
+*What it does:* makes 30% of `/api/quiz/sample` requests fail with a simulated upstream error from `chaos.py`, which no release caused. After about 1.5 minutes the alert fires and the copilot proposes a rollback with **medium** confidence (a recent deploy, no file overlap). Open the incident: the errors come from `chaos.py`, a file this release did not modify, and the alternative explanation says so. **Reject** with a reason such as `errors come from chaos.py, a file this release did not modify`. Then switch the failure off:
 
 ```bash
 ./scripts/chaos_off.sh
 ```
 
-**Safety net (replay, no Jenkins needed).** Say out loud that it is a replay; approving it never calls Jenkins:
+📸 **Figure 34**: the incident page with the proposal, the alternative explanation naming `chaos.py`, and the Audit row showing the rejection.
+
+**Case X2: the template report when the LLM is unavailable.** Quit Ollama from the menu bar, then:
 
 ```bash
 ./scripts/fake_alert.sh
-./scripts/fake_alert.sh chaos_after_docs_deploy
 ```
 
-**Ollama off, template report.** Quit Ollama from the menu bar, then run `./scripts/fake_alert.sh`. The new incident shows the "Template report" badge. Start Ollama again afterwards (`open -a Ollama`).
+*What it does:* replays the recorded `bad_release` incident through the real analysis code. Open the newest incident: the badge says **Template report** with "Why the template: LLM unavailable". The decision (suspect, confidence, action) is identical, because the LLM was never in the decision path. Start Ollama again afterwards: `open -a Ollama`. 📸 **Figure 35**.
+*Note:* this incident has the yellow replay banner. Approving a replay records the decision but never calls Jenkins. Use replays only as a safety net and say so.
 
-### I.8 If something goes wrong
+### I.6 Reset between rehearsals
+
+```bash
+./scripts/revert_bug.sh        # only if the bad commit is still in your history, then: git push
+docker compose -f ops/docker-compose.yml down -v
+docker compose -f ops/docker-compose.yml --env-file ops/.env up -d
+```
+
+*What it does:* the last two lines delete the copilot's incidents and deploys and restart the stack. Then run one **Build Now** on `quizitout` so the copilot learns the current good SHA again (Step P4 and P5).
+
+### I.7 If something goes wrong
 
 | Symptom | Fix |
 |---|---|
-| A Jenkins stage is red | Click it and read the console; run the failing command from section I.3 locally. Jenkins rolls back automatically to the last good SHA. |
-| Build does not start after a push | Poll SCM is every 2 minutes, or the job still builds another branch. Click **Build Now** and check I.2. |
-| Approve says "Jenkins needs credentials" or shows `rollback_failed` | `JENKINS_USER` or `JENKINS_TOKEN` empty, or `JENKINS_URL` still on 8080. Redo I.1. |
-| Approve works but no `quizitout-rollback` build appears | The incident is a replay (yellow banner), or the job does not exist yet. Check I.2. |
-| Alert does not fire after 2 minutes | `docker logs incidentpilot-loadgen-1`, then `curl -s localhost:8000/api/quiz/sample` must return 500. Otherwise use the replay as a safety net and say so. |
-| Incident says "no suspect" | The copilot has no recorded deploy. Run a Build Now with the ops stack up (I.4). |
-| Next build brings the error back | The bad commit is still in git. Run `./scripts/revert_bug.sh` and push (step 9). |
-| `inject_bug.sh` says the working tree is not clean | Commit or stash your changes first. |
+| A Jenkins stage is red | Click the stage and read its console. Jenkins rolls back automatically to the last good SHA after a failed deploy. |
+| Build does not start after a push | Poll SCM runs about every 2 minutes. Click **Build Now**. |
+| `inject_bug.sh`: "Working tree is not clean" | Commit or stash your changes (Step P1). |
+| Alert does not fire after 2 minutes | `docker logs incidentpilot-loadgen-1` must show traffic; `curl -s -o /dev/null -w '%{http_code}\n' localhost:8000/api/quiz/sample` must print 500. If not, use `./scripts/fake_alert.sh` and say it is a replay. |
+| Incident says "no suspect" | The copilot has no recorded deploy. Run a Build Now with the ops stack up (Step P4). |
+| Approve shows `rollback_failed` or "Jenkins needs credentials" | `JENKINS_USER`, `JENKINS_TOKEN` or `JENKINS_URL` in `ops/.env`; fix, then `docker compose -f ops/docker-compose.yml --env-file ops/.env up -d copilot`. |
+| Approve works but no `quizitout-rollback` build | The incident is a replay (yellow banner), or the job name is not exactly `quizitout-rollback`. |
+| Rollback build fails at Validate | `ROLLBACK_TO` contains a space or is not 7 to 40 hex characters (only possible when started by hand). |
+| The bug comes back after the rollback | Step 10 was skipped. Run `./scripts/revert_bug.sh`, push, Build Now. |
+| Page badge stays "Template report" with Ollama running | The first LLM call can take a minute; refresh. If it stays, check `ollama list` and Step P2. |
