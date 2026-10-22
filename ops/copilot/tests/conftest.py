@@ -19,6 +19,8 @@ def fresh_db(tmp_path, monkeypatch):
             config.settings,
             db_path=str(tmp_path / "t.db"),
             enable_replay=True,
+            # tests must never reach a real Ollama (inside Docker host.docker.internal resolves to the Mac)
+            ollama_url="http://127.0.0.1:9",
             jenkins_user="u",
             jenkins_token="t",
         ),
